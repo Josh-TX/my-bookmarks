@@ -1,9 +1,5 @@
 using FaviconFetcher;
 using Microsoft.AspNetCore.Mvc;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Processing;
-using SkiaSharp;
-using System.Net;
 using System.Text.Json;
 using ImageMagick;
 using System.Text.RegularExpressions;
@@ -30,8 +26,7 @@ public class BookmarksController : Controller
 
     [HttpGet]
     [Route("{id:guid}/icon")]
-    [ResponseCache(Duration = 31536000)]
-    public async Task<ActionResult> GetIcon([FromRoute] Guid id, [FromQuery] string passKey)
+    public async Task<ActionResult> GetIcon([FromRoute] Guid id)
     {
         var bookmarks = _getBookmarks();
         var bookmark = bookmarks.FirstOrDefault(z => z.Id == id);
@@ -41,10 +36,8 @@ public class BookmarksController : Controller
         }
         var fileName = $"data/{id}.png";
         if (System.IO.File.Exists(fileName)){
-            using (var stream = System.IO.File.OpenRead(fileName)){
-                stream.Position = 0;
-                return new FileStreamResult(stream, "image/png");
-            }
+            var stream = System.IO.File.OpenRead(fileName);
+            return new FileStreamResult(stream, "image/png");
         }
 
         HttpClientHandler handler = new HttpClientHandler();
@@ -52,11 +45,17 @@ public class BookmarksController : Controller
         using var httpClient = new HttpClient(handler);
         var urls = new List<string>(){bookmark.Url};
         try{
-            var redirectUrl = (await httpClient.GetAsync(bookmark.Url)).RequestMessage!.RequestUri!.ToString();
+            var result = (await httpClient.GetAsync(bookmark.Url));
+            if (result.IsSuccessStatusCode){
+                var redirectUrl = result.RequestMessage!.RequestUri!.ToString();
+                if (redirectUrl != bookmark.Url){
+                    urls.Add(redirectUrl);
+                    urls.Reverse();
+                }
+            }
         } catch(Exception){
-
         }
-        //use FaviconFetcherSource because it can handle self-signed ssl certs.
+        //using FaviconFetcherSource because it can handle self-signed ssl certs.
         var scanner = new Scanner(new FaviconFetcherSource());
         var scanResults = new List<ScanResult>();
         foreach(var url in urls){
@@ -69,8 +68,13 @@ public class BookmarksController : Controller
         {
             return NotFound();
         }
-        var idealResults = scanResults.Where(z => z.ExpectedSize.Width >= iconSize).OrderBy(z => z.ExpectedSize.Width)
-            .Concat(scanResults.Where(z => z.ExpectedSize.Width < iconSize).OrderBy(z => z.ExpectedSize.Width)).ToList();
+        //In my testing, the ico sizes are not always accurate, so prioritize other image types first
+        var icoResults = scanResults.Where(z => z.Location.AbsoluteUri.EndsWith("ico"));
+        var nonIcoResults = scanResults.Except(icoResults);
+        var idealResults = nonIcoResults.Where(z => z.ExpectedSize.Width >= iconSize).OrderBy(z => z.ExpectedSize.Width)
+            .Concat(icoResults.Where(z => z.ExpectedSize.Width >= iconSize).OrderBy(z => z.ExpectedSize.Width))
+            .Concat(scanResults.Where(z => z.ExpectedSize.Width < iconSize).OrderByDescending(z => z.ExpectedSize.Width))
+            .ToList();
         foreach (var idealResult in idealResults)
         {
             try
@@ -92,7 +96,6 @@ public class BookmarksController : Controller
                     image = new MagickImage(httpStream, settings);
                 }
                 image.Format = MagickFormat.Png;
-                image.BackgroundColor = new MagickColor("#FF0000");
                 image.Resize(iconSize, iconSize);
                 var memoryStream = new MemoryStream();
                 image.Write(memoryStream);
@@ -138,6 +141,36 @@ public class BookmarksController : Controller
         System.IO.FileInfo fileInfo = new System.IO.FileInfo(filePath);
         fileInfo.Directory!.Create();
         System.IO.File.WriteAllText(fileInfo.FullName, json);
+        return Ok();
+    }
+
+    
+
+    [HttpPut]
+    [Route("{id:guid}/icon")]
+    public async Task<ActionResult> SetIcon([FromRoute] Guid id, [FromQuery] string passKey, [FromBody] IconWrapper wrapper){
+        if (!_canEdit(passKey))
+        {
+            return StatusCode(403);
+        }
+        var base64Matches = new Regex("^data:image/([a-z]+);base64,(.+)$").Match(wrapper.base64Data);
+        if (!base64Matches.Success){
+            return BadRequest();
+        }
+        var settings = new MagickReadSettings();
+        if (base64Matches.Groups[1].Value == "ico"){
+            settings.Format = MagickFormat.Ico;
+        }
+        var bytes = Convert.FromBase64String(base64Matches.Groups[2].Value);
+        var image = new MagickImage(bytes, settings);
+        image.Format = MagickFormat.Png;
+        image.Resize(iconSize, iconSize);
+        var memoryStream = new MemoryStream();
+        image.Write(memoryStream);
+        var fileName = $"data/{id}.png";
+        using (var writeStream = System.IO.File.OpenWrite(fileName)){
+            memoryStream.WriteTo(writeStream);
+        }
         return Ok();
     }
 

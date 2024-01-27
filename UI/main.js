@@ -67,7 +67,7 @@ function renderBookmarks(allBookmarks, isEditing){
             updateBookmarks();
         })
         div.appendChild(b);
-        b.classList.add("col-span-2")
+        b.classList.add("button-container")
         div.classList.add("bookmark")
         container.append(div);
     }
@@ -137,13 +137,44 @@ function createBookmarkElement(bookmark, isEditing){
             _allBookmarks = _allBookmarks.filter(z => z != bookmark);
             updateBookmarks();
         });
+        var b5a = el("input", "Change Icon");
+        b5a.setAttribute("type", "file")
+        b5a.setAttribute("hidden", "true")
+        b5a.setAttribute("id", "file-input")
+        var b5b = el("label", "Change Icon");
+        b5b.setAttribute("for", "file-input")
+        b5b.classList.add("btn");
+        b5a.addEventListener("change", e => {
+            var file = e.target.files[0]
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const base64String = event.target.result;
+                    fetch(`/api/bookmarks/${bookmark.id}/icon?passkey=` + encodeURI(_passKey), { 
+                        method: "PUT", 
+                        body: JSON.stringify({base64Data: base64String}),
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                    }).then(() => {
+                        img.setAttribute("src", `/api/bookmarks/${bookmark.id}/icon?time=${new Date().toISOString()}`)
+                    });
+                    console.log("base64String", {base64Data: base64String})
+                };
+                reader.readAsDataURL(file);
+            }
+        });
         editDiv.appendChild(b1);
         editDiv.appendChild(b2);
         editDiv.appendChild(b3);
         editDiv.appendChild(b4);
-        editDiv.classList.add("col-span-2")
+        editDiv.appendChild(b5a);
+        editDiv.appendChild(b5b);
+        editDiv.classList.add("button-container")
         a.appendChild(editDiv);
     }
+    
     a.classList.add("bookmark")
     return a;
 }
