@@ -140,10 +140,10 @@ function createBookmarkElement(bookmark, isEditing){
         var b5a = el("input", "Change Icon");
         b5a.setAttribute("type", "file")
         b5a.setAttribute("hidden", "true")
-        b5a.setAttribute("id", "file-input")
+        b5a.setAttribute("id", "file-" + bookmark.id)
         b5a.setAttribute("accept", "image/*");
         var b5b = el("label", "Change Icon");
-        b5b.setAttribute("for", "file-input")
+        b5b.setAttribute("for", "file-" + bookmark.id)
         b5b.classList.add("btn");
         b5a.addEventListener("change", e => {
             var file = e.target.files[0]
